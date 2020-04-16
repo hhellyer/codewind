@@ -36,7 +36,8 @@ module.exports = class LoadRunner {
     this.user = user;
     this.hostname = process.env.CODEWIND_PERFORMANCE_SERVICE ? process.env.CODEWIND_PERFORMANCE_SERVICE : "codewind-performance"
     this.port = '9095';
-    this.project = null;
+    // this.project = null;
+    this.loadRun = null;
     this.collectingHCD = false;
     this.runDescription = null;
     this.up = false;
@@ -50,168 +51,6 @@ module.exports = class LoadRunner {
     this.heartbeatID = null;
   }
 
-  // Fetch the supported metrics features from the project
-  async fetchProjectMetricsFeatures() {
-    log.info("Fetching project metrics features")
-    const metricsContextRoot = this.project.getMetricsContextRoot();
-    let options = {
-      host: this.project.host,
-      port: this.project.getPort(),
-      path: `/${metricsContextRoot}/api/v1/collections/features`,
-      method: 'GET',
-    }
-
-    // when available get the connection details from the project service
-    if (this.project.kubeServiceHost && this.project.kubeServicePort ) {
-      options.host = this.project.kubeServiceHost;
-      options.port = this.project.kubeServicePort;
-    }
-
-    log.info(`Connection options:  ${JSON.stringify(options)}`);
-    try {
-      const featureRequest = await cwUtils.asyncHttpRequest(options);
-      log.info(`Status code = ${featureRequest.statusCode}`);
-      if (featureRequest.statusCode == 200) {
-        this.metricsFeatures = JSON.parse(featureRequest.body);
-        log.info(`Metrics features are : ${JSON.stringify( this.metricsFeatures )}`);
-      } else {
-        this.metricsFeatures = {};
-        log.error(`Unable to fetch project metrics features. HTTP Status code : ${featureRequest.statusCode}`);
-      }
-    } catch (err) {
-      this.metricsFeatures = {};
-      log.error(`Unable to get project metrics features: ${JSON.stringify(err)}`);
-    }
-  }
-
-  /**
-   * Call metrics API to create a collection
-   *
-   * @returns collection URI (eg 'collections/0')
-   */
-  async createCollection(seconds) {
-    const metricsContextRoot = this.project.getMetricsContextRoot();
-
-    let collection = null;
-    try {
-      let options = {
-        host: this.project.host,
-        port: this.project.getPort(),
-        path: `/${metricsContextRoot}/api/v1/collections`,
-        method: 'POST',
-      }
-
-      // If the project metrics support timed metrics set a fixed time recording
-      if (this.metricsFeatures && this.metricsFeatures.timedMetrics) {
-        options.path = `/${metricsContextRoot}/api/v1/collections/${seconds}`
-      } else {
-        this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID,  status: 'app-is-using-old-metrics' });
-      }
-
-      // when available get the connection details from the project service
-      if (this.project.kubeServiceHost && this.project.kubeServicePort ) {
-        options.host = this.project.kubeServiceHost;
-        options.port = this.project.kubeServicePort;
-      }
-
-      log.info(`createCollection: ID:${this.project.projectID}, Host:${options.host}, Port:${options.port}, Path:${options.path}`);
-
-      let metricsRes = await cwUtils.asyncHttpRequest(options);
-      log.debug('createCollection: metricsRes.statusCode=' + metricsRes.statusCode);
-      switch (metricsRes.statusCode) {
-      case 201:
-        collection = metricsRes.headers.location;
-        break;
-      case 400:
-        log.error('createCollection: too many metrics collections ' + metricsRes.statusCode);
-        break;
-      default:
-        log.error('createCollection: unable to create metrics collection: ' + metricsRes.statusCode);
-        break;
-      }
-    } catch (err) {
-      log.error('createCollection: Error in function createCollection');
-      log.error(err);
-    }
-    return collection;
-  }
-
-  /**
-   * Call metrics API to retrieve metrics and then delete the collection
-   *
-   * @param host
-   * @param port
-   * @param metricsContextRoot
-   *          ('appmetrics' | 'javametrics' | 'swiftmetrics')
-   * @param collectionUri
-   *          (eg 'collections/0')
-   * @param metricsFolder
-   *          folder in which to write metrics file
-   * @returns
-   */
-  async recordCollection() {
-    let options = {
-      host: this.project.host,
-      port: this.project.getPort(),
-      path: '/' + this.project.getMetricsContextRoot() + `/api/v1/` + this.collectionUri,
-      method: 'GET',
-    }
-
-    // when available get the connection details from the project service
-    if (this.project.kubeServiceHost && this.project.kubeServicePort ) {
-      options.host = this.project.kubeServiceHost;
-      options.port = this.project.kubeServicePort;
-    }
-
-    if (this.metricsFeatures && this.metricsFeatures.timedMetrics) {
-      options.path = '/' + this.project.getMetricsContextRoot() + `/api/v1/` + this.collectionUri + "/stashed";
-    }
-
-    try {
-      // Get the metrics collection
-      let metricsRes = await cwUtils.asyncHttpRequest(options);
-      let metricsJson = "";
-      log.info(`Requested metrics from project container reported : ${metricsRes.statusCode}`);
-      switch (metricsRes.statusCode) {
-      case 200:
-        metricsJson = JSON.parse(metricsRes.body);
-        if (this.runDescription != null) {
-          metricsJson.desc = this.runDescription;
-        }
-        try {
-          await fs.writeJson(this.workingDir + '/metrics.json', metricsJson, { spaces: '  ' });
-        } catch (err) {
-          log.error(err);
-        }
-        break;
-      default:
-        log.error('recordCollection: unable to get metrics collection: ' + metricsRes.statusCode);
-      }
-    } catch (err) {
-      log.error('recordCollection: Error occurred');
-      log.error(err);
-    }
-
-    // If appmetrics does not support timed collections (which get auto delete when published), delete them now.
-    if (!this.metricsFeatures || !this.metricsFeatures.timedMetrics) {
-      const deleteOptions = {
-        ...options,
-        method: 'DELETE',
-      };
-      http.request(deleteOptions, function (res) {
-        if (res.statusCode == 204) {
-          log.info('recordCollection: Metrics collection deleted');
-        } else {
-          log.error('recordCollection: Unable to delete metrics collection: ' + res.statusCode);
-        }
-      }).on('error', function (err) {
-        log.error('recordCollection: Unable to delete metrics collection');
-        log.error(err);
-      }).end();
-    }
-  }
-
-
   /**
    * Function to run a load test
    *
@@ -222,111 +61,21 @@ module.exports = class LoadRunner {
   async runLoad(loadConfig, targetProject, runDesc) {
     log.debug('runLoad: loadConfig=' + JSON.stringify(loadConfig));
     log.debug('runLoad: project=' + JSON.stringify(targetProject));
-    if (this.project != null) {
-      throw new LoadRunError("RUN_IN_PROGRESS", `For project ${this.project.name} (${this.project.projectID})`);
+    if (this.loadRun != null) {
+      throw new LoadRunError("RUN_IN_PROGRESS", `For project ${this.loadRun.project.name} (${this.loadRun.project.projectID})`);
     }
     if (this.up) {
-      this.project = targetProject;
-      if (runDesc) {
-        this.runDescription = runDesc;
-      } else {
-        this.runDescription = null;
-      }
-      let options = {
-        host: this.hostname,
-        port: this.port,
-        path: '/api/v1/runload',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-
-      await this.createResultsDirectory();
-
-      // Update project endpoints
-      await this.project.getProjectKubeService();
-
-      // Update metrics features
-      await this.fetchProjectMetricsFeatures();
-
-      if (this.project.git) {
-        const hasChanges = await this.project.git.hasChanges();
-        if (!hasChanges) {
-          this.writeGitHash();
-        }
-      }
-
-      this.heartbeat('preparing');
-
-      // start profiling if supported by current language
-      if (this.project.language == 'nodejs' || this.project.language === 'javascript') {
-        this.beginNodeProfiling();
-      } else if (this.project.language == 'java' && this.project.projectType == 'liberty') {
-        await this.beginJavaProfiling(loadConfig.maxSeconds);
-      }
-
-      //  Start collection on metrics endpoint (this must be started AFTER java profiling since java profiling will restart the liberty server)
-      this.collectionUri = await this.createCollection(loadConfig.maxSeconds);
-      this.heartbeat('starting');
-
-      // Send the load run request to the loadrunner microservice
-      let loadrunnerRes = await cwUtils.asyncHttpRequest(options, loadConfig);
-      switch (loadrunnerRes.statusCode) {
-      case 202:
-        break;
-      default:
-        await this.cancelProfiling();
-        this.project = null;
-        log.error(`runLoad (${loadrunnerRes.statusCode} received)'`);
-      }
-      return loadrunnerRes;
+      // this.project = targetProject;
+      // if (runDesc) {
+      //   this.runDescription = runDesc;
+      // } else {
+      //   this.runDescription = null;
+      // }
+      this.loadRun = new LoadRun(loadConfig, targetProject, runDesc);
+      const loadRunnerRes = await this.loadRun.startLoadRun();
+      return loadRunnerRes;
     }
     throw new LoadRunError('CONNECTION_FAILED');
-  }
-
-  /**
-   * @param mode false = wait for health to disappear,  true = wait for health to appear
-   */
-  async waitForHealth(mode) {
-    // wait for /health to become available indicating that liberty has restarted
-    const CONST_WAIT = (1000 * 10)  // 10 seconds
-    const CONST_MAX_RETRIES = 12;  // timeout after 12 * 1000
-    for (let i = 0; i < CONST_MAX_RETRIES; i++) {
-      // eslint-disable-next-line no-await-in-loop
-      await cwUtils.timeout(5000);
-      try {
-        let options = {
-          host: this.project.host,
-          port: this.project.getPort(),
-          path: '/health',
-          method: 'GET'
-        }
-
-        // when available get the connection details from the project service
-        if (this.project.kubeServiceHost && this.project.kubeServicePort ) {
-          options.host = this.project.kubeServiceHost;
-          options.port = this.project.kubeServicePort;
-        }
-
-        // eslint-disable-next-line no-await-in-loop
-        let httpCheckHealth = await cwUtils.asyncHttpRequest(options);
-
-        log.info(`httpCheckHealth ${httpCheckHealth.statusCode}`);
-        if (mode && httpCheckHealth.statusCode === 200) {
-          log.info("LibertyServer has responded to /health");
-          break;
-        }
-      } catch (err) {
-        log.info(err);
-        if (mode) {
-          // eslint-disable-next-line no-await-in-loop
-          await cwUtils.timeout(CONST_WAIT);
-        } else {
-          break;
-        }
-      }
-    }
   }
 
   async beginJavaProfiling(duration) {
@@ -388,7 +137,7 @@ module.exports = class LoadRunner {
       await this.project.getProfilingByTime(this.metricsFolder);
     } catch (error) {
       if (this.project !== null) {
-        const data = { projectID: this.project.projectID,  status: 'collecting' , timestamp: this.metricsFolder }
+        const data = { projectID: this.project.projectID, status: 'collecting', timestamp: this.metricsFolder }
         this.user.uiSocket.emit('runloadStatusChanged', data);
         log.info(`getJavaHealthCenterData: .hcd file not found, trying again. Attempt ${counter}/20`);
         this.timerID = setTimeout(() => this.getJavaHealthCenterData(counter + 1), 3000);
@@ -399,7 +148,7 @@ module.exports = class LoadRunner {
     }
     log.info("getJavaHealthCenterData: .hcd copied to PFE");
     this.collectingHCD = false;
-    const data = { projectID: this.project.projectID,  status: 'hcdReady', timestamp: this.metricsFolder};
+    const data = { projectID: this.project.projectID, status: 'hcdReady', timestamp: this.metricsFolder };
     this.user.uiSocket.emit('runloadStatusChanged', data);
     this.emitCompleted();
   }
@@ -536,7 +285,7 @@ module.exports = class LoadRunner {
     this.socket.on('started', () => {
       log.info(`Load run on project ${this.project.projectID} started`);
       clearTimeout(this.heartbeatID);
-      this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID,  status: 'started' });
+      this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID, status: 'started' });
       this.heartbeat('running');
     });
 
@@ -545,7 +294,7 @@ module.exports = class LoadRunner {
       this.heartbeat('cancelling');
       await this.cancelProfiling();
 
-      this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID,  status: 'cancelled' });
+      this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID, status: 'cancelled' });
       this.project = null;
       clearTimeout(this.heartbeatID);
     });
@@ -611,7 +360,7 @@ module.exports = class LoadRunner {
         }
       });
       log.info(`profiling.json saved for project ${this.project.name}`);
-      const data = { projectID: this.project.projectID,  status: 'profilingReady' , timestamp: this.metricsFolder }
+      const data = { projectID: this.project.projectID, status: 'profilingReady', timestamp: this.metricsFolder }
       this.user.uiSocket.emit('runloadStatusChanged', data);
       this.profilingSocket.emit('disableprofiling');
       this.profilingSocket.disconnect();
@@ -633,7 +382,7 @@ module.exports = class LoadRunner {
       const stopCommand = ['bash', '-c', `source $HOME/artifacts/envvars.sh; $HOME/artifacts/server_setup.sh; cd $WLP_USER_DIR;  /opt/ibm/wlp/bin/server stop; `];
       await cwUtils.spawnContainerProcess(this.project, stopCommand);
       await this.waitForHealth(false);
-      log.info(`cancelProfiling: Starting liberty server`); 
+      log.info(`cancelProfiling: Starting liberty server`);
       const startCommand = ['bash', '-c', `source $HOME/artifacts/envvars.sh; $HOME/artifacts/server_setup.sh; cd $WLP_USER_DIR;  /opt/ibm/wlp/bin/server start; `];
       await cwUtils.spawnContainerProcess(this.project, startCommand);
       await cwUtils.deleteFile(this.project, cwUtils.getProjectSourceRoot(this.project), `load-test/${this.metricsFolder}`);
@@ -665,14 +414,14 @@ module.exports = class LoadRunner {
       // the 200 response we remove the pod.
       let loadrunnerRes = await cwUtils.asyncHttpRequest(options);
       switch (loadrunnerRes.statusCode) {
-      case 200:
-      case 400: // no run in progress
-        break;
-      case 500:
-        log.error(`shutdown: error sending cancel request (500 received)`);
-        break;
-      default:
-        log.error(`shutdown: (${loadrunnerRes.statusCode} received)`);
+        case 200:
+        case 400: // no run in progress
+          break;
+        case 500:
+          log.error(`shutdown: error sending cancel request (500 received)`);
+          break;
+        default:
+          log.error(`shutdown: (${loadrunnerRes.statusCode} received)`);
       }
     }
     this.up = false;
@@ -686,14 +435,284 @@ module.exports = class LoadRunner {
     if (this.heartbeatID !== null) {
       clearTimeout(this.heartbeatID);
     }
-    this.heartbeatID = setInterval(() => this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID,  status: status, timestamp: this.metricsFolder }), 2000);
+    this.heartbeatID = setInterval(() => this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID, status: status, timestamp: this.metricsFolder }), 2000);
   }
 
   emitCompleted() {
     if (!this.collectingHCD) {
-      this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID,  status: 'completed' });
+      this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID, status: 'completed' });
       clearTimeout(this.heartbeatID);
       this.project = null;
     }
   }
+}
+
+// Class to represent an individual load run against a given project.
+// TODO Any function that needs to access project should be in here not LoadRunner.
+class LoadRun {
+
+  constructor(loadConfig, project, runDesc = null) {
+    this.project = project;
+    this.runDescription = runDesc;
+    this.loadConfig = loadConfig;
+  }
+
+  async startLoadRun() {
+    let options = {
+      host: this.hostname,
+      port: this.port,
+      path: '/api/v1/runload',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    }
+
+    await this.createResultsDirectory();
+
+    // Update project endpoints
+    await this.project.getProjectKubeService();
+
+    // Update metrics features
+    await this.fetchProjectMetricsFeatures();
+
+    if (this.project.git) {
+      const hasChanges = await this.project.git.hasChanges();
+      if (!hasChanges) {
+        this.writeGitHash();
+      }
+    }
+
+    this.heartbeat('preparing');
+
+    // start profiling if supported by current language
+    if (this.project.language == 'nodejs' || this.project.language === 'javascript') {
+      this.beginNodeProfiling();
+    } else if (this.project.language == 'java' && this.project.projectType == 'liberty') {
+      await this.beginJavaProfiling(this.loadConfig.maxSeconds);
+    }
+
+    //  Start collection on metrics endpoint (this must be started AFTER java profiling since java profiling will restart the liberty server)
+    this.collectionUri = await this.createCollection(this.loadConfig.maxSeconds);
+    this.heartbeat('starting');
+
+    // Send the load run request to the loadrunner microservice
+    let loadrunnerRes = await cwUtils.asyncHttpRequest(options, this.loadConfig);
+    switch (loadrunnerRes.statusCode) {
+      case 202:
+        break;
+      default:
+        await this.cancelProfiling();
+        this.project = null;
+        log.error(`runLoad (${loadrunnerRes.statusCode} received)'`);
+    }
+    return loadrunnerRes;
+  }
+
+
+  // Fetch the supported metrics features from the project
+  async fetchProjectMetricsFeatures() {
+    log.info("Fetching project metrics features")
+    const metricsContextRoot = this.project.getMetricsContextRoot();
+    let options = {
+      host: this.project.host,
+      port: this.project.getPort(),
+      path: `/${metricsContextRoot}/api/v1/collections/features`,
+      method: 'GET',
+    }
+
+    // when available get the connection details from the project service
+    if (this.project.kubeServiceHost && this.project.kubeServicePort) {
+      options.host = this.project.kubeServiceHost;
+      options.port = this.project.kubeServicePort;
+    }
+
+    log.info(`Connection options:  ${JSON.stringify(options)}`);
+    try {
+      const featureRequest = await cwUtils.asyncHttpRequest(options);
+      log.info(`Status code = ${featureRequest.statusCode}`);
+      if (featureRequest.statusCode == 200) {
+        this.metricsFeatures = JSON.parse(featureRequest.body);
+        log.info(`Metrics features are : ${JSON.stringify(this.metricsFeatures)}`);
+      } else {
+        this.metricsFeatures = {};
+        log.error(`Unable to fetch project metrics features. HTTP Status code : ${featureRequest.statusCode}`);
+      }
+    } catch (err) {
+      this.metricsFeatures = {};
+      log.error(`Unable to get project metrics features: ${JSON.stringify(err)}`);
+    }
+  }
+
+  /**
+  * Call metrics API to create a collection
+  *
+  * @returns collection URI (eg 'collections/0')
+  */
+  async createCollection(seconds) {
+    const metricsContextRoot = this.project.getMetricsContextRoot();
+
+    let collection = null;
+    try {
+      let options = {
+        host: this.project.host,
+        port: this.project.getPort(),
+        path: `/${metricsContextRoot}/api/v1/collections`,
+        method: 'POST',
+      }
+
+      // If the project metrics support timed metrics set a fixed time recording
+      if (this.metricsFeatures && this.metricsFeatures.timedMetrics) {
+        options.path = `/${metricsContextRoot}/api/v1/collections/${seconds}`
+      } else {
+        this.user.uiSocket.emit('runloadStatusChanged', { projectID: this.project.projectID, status: 'app-is-using-old-metrics' });
+      }
+
+      // when available get the connection details from the project service
+      if (this.project.kubeServiceHost && this.project.kubeServicePort) {
+        options.host = this.project.kubeServiceHost;
+        options.port = this.project.kubeServicePort;
+      }
+
+      log.info(`createCollection: ID:${this.project.projectID}, Host:${options.host}, Port:${options.port}, Path:${options.path}`);
+
+      let metricsRes = await cwUtils.asyncHttpRequest(options);
+      log.debug('createCollection: metricsRes.statusCode=' + metricsRes.statusCode);
+      switch (metricsRes.statusCode) {
+        case 201:
+          collection = metricsRes.headers.location;
+          break;
+        case 400:
+          log.error('createCollection: too many metrics collections ' + metricsRes.statusCode);
+          break;
+        default:
+          log.error('createCollection: unable to create metrics collection: ' + metricsRes.statusCode);
+          break;
+      }
+    } catch (err) {
+      log.error('createCollection: Error in function createCollection');
+      log.error(err);
+    }
+    return collection;
+  }
+
+  /**
+   * Call metrics API to retrieve metrics and then delete the collection
+   *
+   * @param host
+   * @param port
+   * @param metricsContextRoot
+   *          ('appmetrics' | 'javametrics' | 'swiftmetrics')
+   * @param collectionUri
+   *          (eg 'collections/0')
+   * @param metricsFolder
+   *          folder in which to write metrics file
+   * @returns
+   */
+  async recordCollection() {
+    let options = {
+      host: this.project.host,
+      port: this.project.getPort(),
+      path: '/' + this.project.getMetricsContextRoot() + `/api/v1/` + this.collectionUri,
+      method: 'GET',
+    }
+
+    // when available get the connection details from the project service
+    if (this.project.kubeServiceHost && this.project.kubeServicePort) {
+      options.host = this.project.kubeServiceHost;
+      options.port = this.project.kubeServicePort;
+    }
+
+    if (this.metricsFeatures && this.metricsFeatures.timedMetrics) {
+      options.path = '/' + this.project.getMetricsContextRoot() + `/api/v1/` + this.collectionUri + "/stashed";
+    }
+
+    try {
+      // Get the metrics collection
+      let metricsRes = await cwUtils.asyncHttpRequest(options);
+      let metricsJson = "";
+      log.info(`Requested metrics from project container reported : ${metricsRes.statusCode}`);
+      switch (metricsRes.statusCode) {
+        case 200:
+          metricsJson = JSON.parse(metricsRes.body);
+          if (this.runDescription != null) {
+            metricsJson.desc = this.runDescription;
+          }
+          try {
+            await fs.writeJson(this.workingDir + '/metrics.json', metricsJson, { spaces: '  ' });
+          } catch (err) {
+            log.error(err);
+          }
+          break;
+        default:
+          log.error('recordCollection: unable to get metrics collection: ' + metricsRes.statusCode);
+      }
+    } catch (err) {
+      log.error('recordCollection: Error occurred');
+      log.error(err);
+    }
+
+    // If appmetrics does not support timed collections (which get auto delete when published), delete them now.
+    if (!this.metricsFeatures || !this.metricsFeatures.timedMetrics) {
+      const deleteOptions = {
+        ...options,
+        method: 'DELETE',
+      };
+      http.request(deleteOptions, function (res) {
+        if (res.statusCode == 204) {
+          log.info('recordCollection: Metrics collection deleted');
+        } else {
+          log.error('recordCollection: Unable to delete metrics collection: ' + res.statusCode);
+        }
+      }).on('error', function (err) {
+        log.error('recordCollection: Unable to delete metrics collection');
+        log.error(err);
+      }).end();
+    }
+  }
+
+ /**
+   * @param mode false = wait for health to disappear,  true = wait for health to appear
+   */
+  async waitForHealth(mode) {
+    // wait for /health to become available indicating that liberty has restarted
+    const CONST_WAIT = (1000 * 10)  // 10 seconds
+    const CONST_MAX_RETRIES = 12;  // timeout after 12 * 1000
+    for (let i = 0; i < CONST_MAX_RETRIES; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await cwUtils.timeout(5000);
+      try {
+        let options = {
+          host: this.project.host,
+          port: this.project.getPort(),
+          path: '/health',
+          method: 'GET'
+        }
+
+        // when available get the connection details from the project service
+        if (this.project.kubeServiceHost && this.project.kubeServicePort) {
+          options.host = this.project.kubeServiceHost;
+          options.port = this.project.kubeServicePort;
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        let httpCheckHealth = await cwUtils.asyncHttpRequest(options);
+
+        log.info(`httpCheckHealth ${httpCheckHealth.statusCode}`);
+        if (mode && httpCheckHealth.statusCode === 200) {
+          log.info("LibertyServer has responded to /health");
+          break;
+        }
+      } catch (err) {
+        log.info(err);
+        if (mode) {
+          // eslint-disable-next-line no-await-in-loop
+          await cwUtils.timeout(CONST_WAIT);
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
 }
