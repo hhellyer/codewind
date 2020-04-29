@@ -36,6 +36,7 @@ const KABANERO_REPO = {
   url: 'https://github.com/kabanero-io/collections/releases/latest/download/kabanero-index.json',
   name: 'Kabanero Collections',
   description: kabaneroDescription,
+  id: 'incubator',
   enabled: false,
   protected: true,
 };

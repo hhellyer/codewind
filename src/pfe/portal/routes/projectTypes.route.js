@@ -63,7 +63,8 @@ async function getProjectTypes(provider, sourceId) {
       log.error(err.message);
     }
   }
-
+  console.log(`Got project types from provider: ${provider}`);
+  console.dir(projectTypes);
   return projectTypes;
 }
 
@@ -92,6 +93,7 @@ router.get('/api/v1/project-types', async (req, res) => {
 
       if (extension) {
         const sourceId = template.sourceId;
+        console.log(`${template.name} template.sourceId is ${template.sourceId}`)
         const key = `${projectType}/${sourceId}`
         // only need to get project types from extension once
         if (seenProjectTypes[key])
