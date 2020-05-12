@@ -208,4 +208,44 @@ router.get('/api/v1/projects/:id/profiling/:testRunTime', validateReq, async fun
   }
 });
 
+router.get('/api/v1/projects/:id/profiling/:testRunTime/queryTree', /*validateReq,*/ async function (req, res) {
+  try {
+    const user = req.cw_user;
+    const projectID = req.sanitizeParams('id');
+    const project = user.projectList.retrieveProject(projectID);
+    if (!project) {
+      res.status(404).send(`Unable to find project ${projectID}`);
+      return;
+    }
+    const testRunTime = req.sanitizeParams('testRunTime');
+    const profilingStream = await project.getProfilingByTime(testRunTime);
+    res.status(200)
+    profilingStream.on('end', () => res.end());
+    profilingStream.pipe(res);
+  } catch (err) {
+    log.error(err.info || err);
+    res.status(500).send(err.info || err);
+  }
+});
+
+router.get('/api/v1/projects/:id/profiling/:testRunTime/querySummary', /*validateReq,*/ async function (req, res) {
+  try {
+    const user = req.cw_user;
+    const projectID = req.sanitizeParams('id');
+    const project = user.projectList.retrieveProject(projectID);
+    if (!project) {
+      res.status(404).send(`Unable to find project ${projectID}`);
+      return;
+    }
+    const testRunTime = req.sanitizeParams('testRunTime');
+    const profilingStream = await project.getProfilingByTime(testRunTime);
+    res.status(200)
+    profilingStream.on('end', () => res.end());
+    profilingStream.pipe(res);
+  } catch (err) {
+    log.error(err.info || err);
+    res.status(500).send(err.info || err);
+  }
+});
+
 module.exports = router;

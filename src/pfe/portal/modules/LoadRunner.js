@@ -632,22 +632,24 @@ module.exports = class LoadRunner {
       /* Run the merge out of process as the profiling data could potentially be quite large. */
       const normalisedProfilingPath = path.join(this.workingDir + '/cw-profile.json');
       console.log('Merging profiles....');
-      console.log(`Running: /usr/bin/node /portal/scripts/mergeNodeProfiles.js ${profilingPath} ${normalisedProfilingPath}`);
-
       const mergeCommand = `/usr/bin/node /portal/scripts/mergeNodeProfiles.js ${profilingPath} ${normalisedProfilingPath}`;
+      console.log(`Running: ${mergeCommand}`);
       log.trace(`Running: ${mergeCommand}`);
       const mergeProcess = await exec(mergeCommand);
-      console.log('Merging done');
       console.log(mergeProcess.stdout);
       console.log(mergeProcess.stderr);
+      console.log('Merging done');
+
       console.log('Summarising profile....');
       const summarisedProfilingPath = path.join(this.workingDir + '/cw-profile-summary.json');
-      const summariseCommand = `/usr/bin/node /portal/scripts/mergeNodeProfiles.js ${normalisedProfilingPath} ${summarisedProfilingPath}`;
+      const summariseCommand = `/usr/bin/node /portal/scripts/summariseProfile.js ${normalisedProfilingPath} ${summarisedProfilingPath}`;
+      console.log(`Running: ${summariseCommand}`);
       log.trace(`Running: ${summariseCommand}`);
       const summariseProcess = await exec(summariseCommand);
       console.log(summariseProcess.stdout);
       console.log(summariseProcess.stderr);
       console.log('Summarising done');
+      // Merging done.
 
       const data = { projectID: this.project.projectID, status: 'profilingReady', timestamp: this.metricsFolder }
       this.user.uiSocket.emit('runloadStatusChanged', data);
