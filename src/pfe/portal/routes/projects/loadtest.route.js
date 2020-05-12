@@ -10,6 +10,8 @@
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 const express = require('express');
+const fs = require('fs-extra');
+const {JSONPath} = require('jsonpath-plus');
 const path = require('path');
 const queryString = require('query-string');
 
@@ -208,7 +210,7 @@ router.get('/api/v1/projects/:id/profiling/:testRunTime', validateReq, async fun
   }
 });
 
-router.get('/api/v1/projects/:id/profiling/:testRunTime/queryTree', /*validateReq,*/ async function (req, res) {
+router.post('/api/v1/projects/:id/profiling/:testRunTime/querytree', validateReq, async function (req, res) {
   try {
     const user = req.cw_user;
     const projectID = req.sanitizeParams('id');
@@ -218,17 +220,26 @@ router.get('/api/v1/projects/:id/profiling/:testRunTime/queryTree', /*validateRe
       return;
     }
     const testRunTime = req.sanitizeParams('testRunTime');
-    const profilingStream = await project.getProfilingByTime(testRunTime);
-    res.status(200)
-    profilingStream.on('end', () => res.end());
-    profilingStream.pipe(res);
+    const profilingTreeFile = await project.getPathToProfilingTreeFile(testRunTime);
+    if (!await fs.pathExists(profilingTreeFile)) {
+      res.status(404).send(`Unable to find profiling tree for ${testRunTime}`);
+      return;
+    }
+    // eslint-disable-next-line microclimate-portal-eslint/sanitise-body-parameters
+    const path = req.body['path'];
+    const options = {
+      wrap: false,
+    }
+    const profilingTree = await fs.readJSON(profilingTreeFile);
+    const result = JSONPath({options, path, json: profilingTree});
+    res.status(200).send(result);
   } catch (err) {
     log.error(err.info || err);
     res.status(500).send(err.info || err);
   }
 });
 
-router.get('/api/v1/projects/:id/profiling/:testRunTime/querySummary', /*validateReq,*/ async function (req, res) {
+router.post('/api/v1/projects/:id/profiling/:testRunTime/querysummary', validateReq, async function (req, res) {
   try {
     const user = req.cw_user;
     const projectID = req.sanitizeParams('id');
@@ -238,10 +249,19 @@ router.get('/api/v1/projects/:id/profiling/:testRunTime/querySummary', /*validat
       return;
     }
     const testRunTime = req.sanitizeParams('testRunTime');
-    const profilingStream = await project.getProfilingByTime(testRunTime);
-    res.status(200)
-    profilingStream.on('end', () => res.end());
-    profilingStream.pipe(res);
+    const profilingSummaryFile = await project.getPathToProfilingSummaryFile(testRunTime);
+    if (!await fs.pathExists(profilingSummaryFile)) {
+      res.status(404).send(`Unable to find profiling summary for ${testRunTime}`);
+      return;
+    }
+    // eslint-disable-next-line microclimate-portal-eslint/sanitise-body-parameters
+    const path = req.body['path'];
+    const options = {
+      wrap: false,
+    }
+    const profilingTree = await fs.readJSON(profilingSummaryFile);
+    const result = JSONPath({options, path, json: profilingTree});
+    res.status(200).send(result);
   } catch (err) {
     log.error(err.info || err);
     res.status(500).send(err.info || err);

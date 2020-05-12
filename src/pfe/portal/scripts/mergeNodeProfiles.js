@@ -14,53 +14,67 @@
 "use strict";
 const fs = require('fs-extra');
 
-const inFile = process.argv[2];
-const outFile = process.argv[3];
-const perfData = fs.readJSONSync(inFile);
-
-// TODO - Go through the output in detail and check all the parent/child relationships
-// are correct.
-
-// Initialise a new, empty profile and merge everything into this.
-const newProfile = {
-  totalCount: 0,
-  "functions": [
-    {
-      self: 0,
-      location: {
-        file: "(root)",
-      },
-      depth: 0,
-      children: [],
-      count: 0,
-    }
-  ]
-}
-
 // Map to provide fast lookups for existing functions.
-const functionsMap = {}
+let functionsMap = {};
 
 // We use 0 for the magical parent node.
 let currentFunctionId = 1;
-// Don't think I can quite do this with JSONPath.
-for (const profile of perfData) {
-  const existingIdToNewId = [0];
-  for (const fn of profile.functions) {
-    const parentId = existingIdToNewId[fn.parent];
-    newProfile.totalCount += fn.count;
-    if (parentId === undefined) {
-      console.error(`Found function with a parent we haven't seen yet: ${parentId}. Failing.`);
-      process.exit(1);
-    }
-    const profiledFunction = findOrCreateFn(fn, parentId);
-    existingIdToNewId[fn.self] = profiledFunction.self;
-  }
+
+// Initialise a new, empty profile and merge everything into this.
+let newProfile = {};
+
+// Allow this file to be loaded by others
+if (require.main === module) {
+  main(process.argv);
 }
 
-// Start at the root node and total up all the child call counts.
-totalChildCounts(newProfile.functions[0]);
+function main(argv) {
 
-fs.writeJSONSync(outFile, newProfile, { spaces: 2 });
+  // Reset globals so this can be run more than once.
+  functionsMap = {}
+  currentFunctionId = 1;
+  newProfile = {
+    totalCount: 0,
+    "functions": [
+      {
+        self: 0,
+        location: {
+          file: "(root)",
+        },
+        depth: 0,
+        children: [],
+        count: 0,
+      }
+    ]
+  };
+
+  const inFile = argv[2];
+  const outFile = argv[3];
+  const perfData = fs.readJSONSync(inFile);
+
+  // TODO - Go through the output in detail and check all the parent/child relationships
+  // are correct.
+
+  // Don't think I can quite do this with JSONPath.
+  for (const profile of perfData) {
+    const existingIdToNewId = [0];
+    for (const fn of profile.functions) {
+      const parentId = existingIdToNewId[fn.parent];
+      newProfile.totalCount += fn.count;
+      if (parentId === undefined) {
+        console.error(`Found function with a parent we haven't seen yet: ${parentId}. Failing.`);
+        process.exit(1);
+      }
+      const profiledFunction = findOrCreateFn(fn, parentId);
+      existingIdToNewId[fn.self] = profiledFunction.self;
+    }
+  }
+
+  // Start at the root node and total up all the child call counts.
+  totalChildCounts(newProfile.functions[0]);
+
+  fs.writeJSONSync(outFile, newProfile, { spaces: 2 });
+}
 
 /* Generates a key we can use to lookup this function
  * without doing a linear search of all the functions

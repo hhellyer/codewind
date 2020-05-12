@@ -10,10 +10,10 @@
  *******************************************************************************/
 
 const dateFormat = require('dateformat');
-const { promisify } = require('util');
-const exec = promisify(require('child_process').exec);
 const fs = require('fs-extra');
 const io = require('socket.io-client');
+const { promisify } = require('util');
+const exec = promisify(require('child_process').exec);
 const path = require('path');
 const http = require('http');
 
@@ -619,8 +619,8 @@ module.exports = class LoadRunner {
    */
   async endProfiling() {
     if (this.profilingSocket !== null) {
-      const profilingPath = path.join(this.workingDir + '/profiling.json');
       try {
+        const profilingPath = path.join(this.workingDir + '/profiling.json');
         await fs.writeJson(profilingPath, this.profilingSamples, { spaces: '  ' });
       } catch(err) {
         log.error('endProfiling: Error writing profiling samples');
@@ -628,28 +628,12 @@ module.exports = class LoadRunner {
       }
       log.info(`profiling.json saved for project ${this.project.name}`);
 
-      // TODO - This isn't perfect but Ed is moving this code anyway so it can wait.
-      /* Run the merge out of process as the profiling data could potentially be quite large. */
-      const normalisedProfilingPath = path.join(this.workingDir + '/cw-profile.json');
-      console.log('Merging profiles....');
-      const mergeCommand = `/usr/bin/node /portal/scripts/mergeNodeProfiles.js ${profilingPath} ${normalisedProfilingPath}`;
-      console.log(`Running: ${mergeCommand}`);
-      log.trace(`Running: ${mergeCommand}`);
-      const mergeProcess = await exec(mergeCommand);
-      console.log(mergeProcess.stdout);
-      console.log(mergeProcess.stderr);
-      console.log('Merging done');
-
-      console.log('Summarising profile....');
-      const summarisedProfilingPath = path.join(this.workingDir + '/cw-profile-summary.json');
-      const summariseCommand = `/usr/bin/node /portal/scripts/summariseProfile.js ${normalisedProfilingPath} ${summarisedProfilingPath}`;
-      console.log(`Running: ${summariseCommand}`);
-      log.trace(`Running: ${summariseCommand}`);
-      const summariseProcess = await exec(summariseCommand);
-      console.log(summariseProcess.stdout);
-      console.log(summariseProcess.stderr);
-      console.log('Summarising done');
-      // Merging done.
+      try {
+        await this.postProcessProfilingData();
+      } catch (err) {
+        log.error('endProfiling: Error post processing profiling data.');
+        log.error(err);
+      }
 
       const data = { projectID: this.project.projectID, status: 'profilingReady', timestamp: this.metricsFolder }
       this.user.uiSocket.emit('runloadStatusChanged', data);
@@ -659,6 +643,26 @@ module.exports = class LoadRunner {
       this.profilingSamples = null;
     }
     this.emitCompleted();
+  }
+
+  async postProcessProfilingData() {
+    /* Run the merge out of process as the profiling data could potentially be quite large. */
+    const profilingPath = path.join(this.workingDir + '/profiling.json');
+    const normalisedProfilingPath = this.project.getPathToProfilingTreeFile(this.metricsFolder);
+    const mergeCommand = `${process.execPath} /portal/scripts/mergeNodeProfiles.js ${profilingPath} ${normalisedProfilingPath}`;
+    log.debug(`Running: ${mergeCommand}`);
+    const mergeProcess = await exec(mergeCommand);
+    log.trace(mergeProcess.stdout);
+    log.trace(mergeProcess.stderr);
+    log.debug('Merging done');
+
+    const summarisedProfilingPath = this.project.getPathToProfilingSummaryFile(this.metricsFolder);
+    const summariseCommand = `${process.execPath} /portal/scripts/summariseProfile.js ${normalisedProfilingPath} ${summarisedProfilingPath}`;
+    log.debug(`Running: ${summariseCommand}`);
+    const summariseProcess = await exec(summariseCommand);
+    log.trace(summariseProcess.stdout);
+    log.trace(summariseProcess.stderr);
+    log.debug('Summarising done');
   }
 
   async cancelProfiling() {
