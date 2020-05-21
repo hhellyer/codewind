@@ -654,7 +654,7 @@ module.exports = class LoadRunner {
     if (this.project.language == 'nodejs') {
       mergeCommand = `${process.execPath} /portal/scripts/mergeNodeProfiles.js ${profilingPath} ${normalisedProfilingPath}`;
     } else if (this.project.language == 'java') {
-      mergeCommand = `/opt/java/jre/bin/java -jar profiling-parser.jar ${profilingPath} ${normalisedProfilingPath}`;
+      mergeCommand = `/opt/java/jre/bin/java -jar /portal/scripts/profiling-parser.jar ${profilingPath} ${normalisedProfilingPath}`;
     } else {
       log.warn(`Cannot post process performance results for ${this.project.language} projects.`);
     }
