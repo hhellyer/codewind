@@ -5,6 +5,13 @@ if [ $EC -ne 0 ]; then
     exit 1;
 fi
 
+mvn -f profiling-parser/pom.xml clean package -DskipTests
+EC=$?
+if [ $EC -ne 0 ]; then
+    echo "iterative-dev build failed with exit code " $EC
+    exit 1;
+fi
+
 # read and source the .env file
 env_file=./devbuild.env
 

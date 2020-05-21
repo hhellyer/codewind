@@ -1,0 +1,92 @@
+package org.eclipse.codewind;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.util.ArrayList;
+import java.util.List;
+
+import com.ibm.java.diagnostics.healthcenter.api.HealthCenter;
+import com.ibm.java.diagnostics.healthcenter.api.HealthCenterException;
+import com.ibm.java.diagnostics.healthcenter.api.factory.HealthCenterFactory;
+import com.ibm.java.diagnostics.healthcenter.api.profiling.MethodProfileData;
+import com.ibm.java.diagnostics.healthcenter.api.profiling.MethodProfilingNode;
+import com.ibm.java.diagnostics.healthcenter.api.profiling.ProfilingData;
+
+public class ProfilingEventsToJSON {
+
+    public static void main(String args[]) {
+        System.out.println("Hello.");
+
+        if (args.length != 1) {
+            System.err.printf("Invalid number of arguments %d\n", args.length);
+            System.exit(1);
+        }
+        System.out.printf("Loading profiling data from %s\n", args[0]);
+        File hcdFile = new File(args[0]);
+
+        List<NormalisedNode> roots = new ArrayList<>();
+
+        // A fake root so there is one overall root to the tree.
+        NormalisedNode fakeRoot = new NormalisedNode("root", null, 0);
+
+        try {
+            HealthCenter hcAPI = HealthCenterFactory.connect(hcdFile);
+            ProfilingData profilingData = hcAPI.getProfilingData();
+            profilingData.addProfilingListener( 
+                (e) -> System.err.println(e)
+            );
+           
+
+        } catch (FileNotFoundException | HealthCenterException e) {
+            e.printStackTrace();
+        }
+
+        System.out.println("Done.");
+        // System.exit(0);
+    }
+
+    // Function to sanity check the all nodes only have one parent. (Wasn't sure how
+    // health center structured things.)
+    private static int checkOneParent(MethodProfilingNode[] children) {
+        for (MethodProfilingNode child : children) {
+            if (child.getCallingMethods().length != 1) {
+                System.err.println("Dang, dang, darn, blast.");
+            } else {
+                System.err.println("Yay!");
+            }
+        }
+        int count = children.length;
+        for (MethodProfilingNode child : children) {
+            count += checkOneParent(child.getCalledMethods());
+        }
+        return count;
+    }
+
+    // private static void addChild(NormalisedNode parent, MethodProfilingNode child) {
+
+    //     getCountWhenCalledFromParent
+
+    //     NormalisedNode normalisedChild = new NormalisedNode(child.getMethodName(), parent, child.());
+    //     for (MethodProfilingNode nextChild : child.getCalledMethods()) {
+    //         addChild(normalisedChild, nextChild);
+    //     }
+    // }
+
+    private static ArrayList<MethodProfileData> getRoots(MethodProfileData[] methodProfileData) {
+        ArrayList<MethodProfileData> roots = new ArrayList<MethodProfileData>();
+        for (MethodProfileData mpd : methodProfileData) {
+            // System.out.printf("%s : %d samples, callers: %d, callees %d\n",
+            // mpd.getMethodName(), mpd.getMethodSampleCount(),
+            // mpd.getCallingMethods().length, mpd.getCalledMethods().length);
+            // for (MethodProfilingNode methodProfileNode : mpd.getCallingMethods()) {
+            // System.out.printf("\t%s - %f\n", methodProfileNode.getMethodName(),
+            // methodProfileNode.getWeight());
+            // }
+            if (mpd.getCallingMethods().length == 0) {
+                roots.add(mpd);
+            }
+        }
+        return roots;
+    }
+
+}
