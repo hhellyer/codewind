@@ -402,6 +402,7 @@ module.exports = class LoadRunner {
     this.collectingHCD = false;
     const data = { projectID: this.project.projectID,  status: 'hcdReady', timestamp: this.metricsFolder};
     this.user.uiSocket.emit('runloadStatusChanged', data);
+    await this.postProcessProfilingData();
     this.emitCompleted();
   }
 
@@ -647,9 +648,16 @@ module.exports = class LoadRunner {
 
   async postProcessProfilingData() {
     /* Run the merge out of process as the profiling data could potentially be quite large. */
-    const profilingPath = path.join(this.workingDir + '/profiling.json');
+    const profilingPath = await this.project.getPathToProfilingFile(this.metricsFolder);
     const normalisedProfilingPath = this.project.getPathToProfilingTreeFile(this.metricsFolder);
-    const mergeCommand = `${process.execPath} /portal/scripts/mergeNodeProfiles.js ${profilingPath} ${normalisedProfilingPath}`;
+    let mergeCommand = "";
+    if (this.project.language == 'nodejs') {
+      mergeCommand = `${process.execPath} /portal/scripts/mergeNodeProfiles.js ${profilingPath} ${normalisedProfilingPath}`;
+    } else if (this.project.language == 'java') {
+      mergeCommand = `/opt/java/jre/bin/java -jar profiling-parser.jar ${profilingPath} ${normalisedProfilingPath}`;
+    } else {
+      log.warn(`Cannot post process performance results for ${this.project.language} projects.`);
+    }
     log.debug(`Running: ${mergeCommand}`);
     try {
       const mergeProcess = await exec(mergeCommand);

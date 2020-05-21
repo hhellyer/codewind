@@ -8,7 +8,7 @@ fi
 mvn -f profiling-parser/pom.xml clean package -DskipTests
 EC=$?
 if [ $EC -ne 0 ]; then
-    echo "iterative-dev build failed with exit code " $EC
+    echo "profiling-parser build failed with exit code " $EC
     exit 1;
 fi
 

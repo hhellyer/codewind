@@ -31,7 +31,7 @@ public class HCProfileToJSON {
             System.err.printf("Invalid number of arguments %d\n", args.length);
             System.exit(1);
         }
-        System.out.printf("Loading profiling data from %s\n", args[0]);
+        // System.out.printf("Loading profiling data from %s\n", args[0]);
         File hcdFile = new File(args[0]);
         File outputFile = new File(args[1]);
         Writer out = new BufferedWriter(new FileWriter(outputFile));
