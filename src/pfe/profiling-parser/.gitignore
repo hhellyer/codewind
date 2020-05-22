@@ -1,1 +1,4 @@
 target/
+monitoring-api.jar
+.classpath
+.settings
