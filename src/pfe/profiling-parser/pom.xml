@@ -20,6 +20,21 @@
                     <target>1.8</target>
                 </configuration>
             </plugin>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-jar-plugin</artifactId>
+              <configuration>
+                  <archive>
+                      <manifest>
+                          <!--<addClasspath>true</addClasspath>
+                          <classpathPrefix>libs/</classpathPrefix>-->
+                          <mainClass>
+                              org.eclipse.codewind.HCProfileToJSON
+                          </mainClass>
+                      </manifest>
+                  </archive>
+              </configuration>
+          </plugin>
         </plugins>
     </pluginManagement>
   </build>
@@ -30,8 +45,8 @@
       <version>3.8.1</version>
       <scope>test</scope>
     </dependency>
-    <dependency>
     <!-- mvn install:install-file -Dfile=deps/monitoring-api.jar -DgroupId=com.ibm.java.diagnostics.healthcenter -DartifactId=com.ibm.java.diagnostics.healthcenter -Dversion=1.0 -Dpackaging=jar -->
+    <dependency>
 			<groupId>com.ibm.java.diagnostics.healthcenter</groupId>
 			<artifactId>com.ibm.java.diagnostics.healthcenter</artifactId>
 			<version>1.0</version>
