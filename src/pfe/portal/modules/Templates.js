@@ -415,6 +415,13 @@ async function makeGetRequest(url, gitCredentials) {
     port: url.port,
     method: 'GET',
   }
+
+  const isHttps = (url.protocol === 'https:');
+  if (isHttps) {
+    options.rejectUnauthorized = false;
+    options.secure = true;
+  }
+
   if (gitCredentials) {
     if (gitCredentials.username && gitCredentials.password) {
       options.auth = `${gitCredentials.username}:${gitCredentials.password}`;
@@ -427,7 +434,7 @@ async function makeGetRequest(url, gitCredentials) {
   const res = await cwUtils.asyncHttpRequest(
     options,
     undefined,
-    url.protocol === 'https:',
+    isHttps,
   );
   return res;
 }
